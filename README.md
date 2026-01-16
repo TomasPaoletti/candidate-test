@@ -15,17 +15,20 @@ El proyecto ya tiene una estructura base parcialmente implementada; tu trabajo e
 ## Prioridades
 
 ### Must Have (Crítico)
+
 - Integración con OpenAI API (chat básico funcionando)
 - Sistema RAG completo (indexar PDFs, buscar, usar contexto)
 - Endpoints de estudiante (`/stats`, `/preferences`)
 - Tests de los métodos implementados
 
 ### Should Have (Importante)
+
 - Streaming de respuestas (SSE o WebSocket)
 - Historial de chat con paginación
 - Estados de loading/error en frontend
 
 ### Nice to Have (Si hay tiempo)
+
 - Gráfico de actividad en Dashboard
 - Efectos hover en CourseCard
 - Formateo markdown en mensajes
@@ -83,6 +86,7 @@ El sistema RAG permite que el chat responda preguntas usando el contenido real d
 ```
 
 **Archivos clave para RAG:**
+
 - `knowledge.service.ts` → Crear embeddings, indexar, buscar
 - `knowledge.controller.ts` → Endpoints `/index` y `/search`
 - `ai.service.ts` → `generateResponseWithRAG()` usa el contexto encontrado

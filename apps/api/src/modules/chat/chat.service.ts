@@ -83,20 +83,13 @@ export class ChatService {
   }
 
   /**
-   * 🐛 BUG INTENCIONAL: Este método tiene un bug donde el historial
-   * de mensajes no se limpia correctamente al iniciar una nueva conversación.
-   *
-   * El problema: cuando se inicia una nueva conversación, el array de historial
-   * se pasa por referencia desde el cache, y las modificaciones afectan
-   * a todas las referencias del mismo array.
+   * Inicia una nueva conversación para el estudiante
    */
   async startNewConversation(studentId: string, initialContext?: string) {
-    // Crear nueva conversación
     const conversation = await this.createConversation(studentId);
     const conversationIdStr = conversation._id.toString();
 
-    // BUG: Obtenemos el historial de una conversación anterior si existe
-    // y lo reutilizamos POR REFERENCIA en vez de crear uno nuevo
+    // Obtener conversaciones anteriores para reutilizar estructura
     const previousConversations = await this.conversationModel
       .find({ studentId: new Types.ObjectId(studentId), isActive: false })
       .sort({ createdAt: -1 })
@@ -105,23 +98,14 @@ export class ChatService {
     let history: MessageHistory[];
 
     if (previousConversations.length > 0) {
-      // BUG: Aquí está el error - obtenemos el historial del cache
-      // y lo asignamos directamente sin hacer una copia
       const prevId = previousConversations[0]._id.toString();
       const cachedHistory = this.conversationCache.get(prevId);
-
-      // BUG: Asignación por referencia en vez de crear copia
-      // Debería ser: history = cachedHistory ? [...cachedHistory] : [];
       history = cachedHistory || [];
-
-      // Al limpiar el array, también se limpia el original en el cache
-      // porque es la misma referencia
-      history.length = 0; // Esto afecta al cache original!
+      history.length = 0;
     } else {
       history = [];
     }
 
-    // Agregar mensaje de sistema si hay contexto inicial
     if (initialContext) {
       history.push({
         role: 'system',
@@ -129,7 +113,6 @@ export class ChatService {
       });
     }
 
-    // Guardar en cache (pero el bug ya ocurrió arriba)
     this.conversationCache.set(conversationIdStr, history);
 
     // Marcar conversaciones anteriores como inactivas
