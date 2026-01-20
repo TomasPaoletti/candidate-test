@@ -1,10 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { ChatMessage, ChatMessageDocument } from './schemas/chat-message.schema';
-import { Conversation, ConversationDocument } from './schemas/conversation.schema';
 import { AiService } from '../ai/ai.service';
+import { KnowledgeService } from '../knowledge/knowledge.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import {
+  ChatMessage,
+  ChatMessageDocument,
+} from './schemas/chat-message.schema';
+import {
+  Conversation,
+  ConversationDocument,
+} from './schemas/conversation.schema';
 
 interface MessageHistory {
   role: 'user' | 'assistant' | 'system';
@@ -19,9 +26,12 @@ export class ChatService {
   private conversationCache: Map<string, MessageHistory[]> = new Map();
 
   constructor(
-    @InjectModel(ChatMessage.name) private chatMessageModel: Model<ChatMessageDocument>,
-    @InjectModel(Conversation.name) private conversationModel: Model<ConversationDocument>,
-    private readonly aiService: AiService
+    @InjectModel(ChatMessage.name)
+    private chatMessageModel: Model<ChatMessageDocument>,
+    @InjectModel(Conversation.name)
+    private conversationModel: Model<ConversationDocument>,
+    private readonly aiService: AiService,
+    private readonly knowledgeService: KnowledgeService,
   ) {}
 
   /**
@@ -52,34 +62,61 @@ export class ChatService {
     });
 
     // Obtener historial para contexto
-    const history = await this.getConversationHistory(conversation._id.toString());
+    const history = await this.getConversationHistory(
+      conversation._id.toString(),
+    );
 
-    // TODO: El candidato debe implementar la llamada real a OpenAI
-    // Por ahora retornamos una respuesta placeholder
-    const aiResponse = await this.aiService.generateResponse(message, history);
+    try {
+      const searchResults = await this.knowledgeService.searchSimilar(message, {
+        limit: 5,
+        minScore: 0.5,
+      });
 
-    // Guardar respuesta del asistente
-    const assistantMessage = await this.chatMessageModel.create({
-      conversationId: conversation._id,
-      role: 'assistant',
-      content: aiResponse.content,
-      metadata: {
-        tokensUsed: aiResponse.tokensUsed,
-        model: aiResponse.model,
-      },
-    });
+      let aiResponse;
 
-    // Actualizar conversación
-    await this.conversationModel.findByIdAndUpdate(conversation._id, {
-      lastMessageAt: new Date(),
-      $inc: { messageCount: 2 },
-    });
+      if (searchResults.length > 0) {
+        // Relevant context
+        const relevantContext = searchResults.map((result) => result.content);
 
-    return {
-      conversationId: conversation._id,
-      userMessage,
-      assistantMessage,
-    };
+        this.logger.log(`Find ${searchResults.length} chunks relevants. `);
+
+        aiResponse = await this.aiService.generateResponseWithRAG(
+          message,
+          history,
+          relevantContext,
+        );
+      } else {
+        this.logger.log('No relevant context found. Using normal response.');
+
+        aiResponse = await this.aiService.generateResponse(message, history);
+      }
+
+      const assistantMessage = await this.chatMessageModel.create({
+        conversationId: conversation._id,
+        role: 'assistant',
+        content: aiResponse.content,
+        metadata: {
+          tokensUsed: aiResponse.tokensUsed,
+          model: aiResponse.model,
+          usedRAG: searchResults.length > 0,
+          relevantChunks: searchResults.length,
+        },
+      });
+
+      await this.conversationModel.findByIdAndUpdate(conversation._id, {
+        lastMessageAt: new Date(),
+        $inc: { messageCount: 2 },
+      });
+
+      return {
+        conversationId: conversation._id,
+        userMessage,
+        assistantMessage,
+      };
+    } catch (error) {
+      this.logger.error(`Error en sendMessage: ${error.message}`);
+      throw error;
+    }
   }
 
   /**
@@ -117,8 +154,11 @@ export class ChatService {
 
     // Marcar conversaciones anteriores como inactivas
     await this.conversationModel.updateMany(
-      { studentId: new Types.ObjectId(studentId), _id: { $ne: conversation._id } },
-      { isActive: false }
+      {
+        studentId: new Types.ObjectId(studentId),
+        _id: { $ne: conversation._id },
+      },
+      { isActive: false },
     );
 
     this.logger.log(`Nueva conversación iniciada: ${conversationIdStr}`);
@@ -136,7 +176,9 @@ export class ChatService {
    */
   async getHistory(studentId: string, conversationId?: string) {
     // TODO: Implementar
-    throw new Error('Not implemented - El candidato debe implementar este método');
+    throw new Error(
+      'Not implemented - El candidato debe implementar este método',
+    );
   }
 
   /**
@@ -149,7 +191,9 @@ export class ChatService {
    */
   async deleteHistory(studentId: string, conversationId: string) {
     // TODO: Implementar
-    throw new Error('Not implemented - El candidato debe implementar este método');
+    throw new Error(
+      'Not implemented - El candidato debe implementar este método',
+    );
   }
 
   /**
@@ -177,7 +221,9 @@ export class ChatService {
   /**
    * Helper para obtener historial de conversación (para contexto de IA)
    */
-  private async getConversationHistory(conversationId: string): Promise<MessageHistory[]> {
+  private async getConversationHistory(
+    conversationId: string,
+  ): Promise<MessageHistory[]> {
     // Primero verificar cache
     if (this.conversationCache.has(conversationId)) {
       return this.conversationCache.get(conversationId)!;

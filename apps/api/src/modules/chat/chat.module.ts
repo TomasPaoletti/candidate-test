@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AiModule } from '../ai/ai.module';
+import { KnowledgeModule } from '../knowledge/knowledge.module';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { ChatMessage, ChatMessageSchema } from './schemas/chat-message.schema';
-import { Conversation, ConversationSchema } from './schemas/conversation.schema';
-import { AiModule } from '../ai/ai.module';
-// TODO: Para integrar RAG en el chat, debes importar KnowledgeModule aquí:
-// import { KnowledgeModule } from '../knowledge/knowledge.module';
+import {
+  Conversation,
+  ConversationSchema,
+} from './schemas/conversation.schema';
 
 @Module({
   imports: [
@@ -15,8 +17,7 @@ import { AiModule } from '../ai/ai.module';
       { name: Conversation.name, schema: ConversationSchema },
     ]),
     AiModule,
-    // TODO: Añadir KnowledgeModule aquí para poder inyectar KnowledgeService en ChatService
-    // KnowledgeModule,
+    KnowledgeModule,
   ],
   controllers: [ChatController],
   providers: [ChatService],
