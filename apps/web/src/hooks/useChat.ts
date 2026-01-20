@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 
 interface Message {
@@ -7,31 +7,49 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  isStreaming?: boolean;
 }
 
 interface UseChatOptions {
   studentId: string;
-  onError?: (error: Error) => void;
+  conversationId?: string | null;
 }
 
 /**
  * 📝 TODO: El candidato debe completar este hook
  *
  * Funcionalidades a implementar:
- * 1. Manejo de estado de mensajes
- * 2. Integración con streaming de respuestas
+ * 1. Manejo de estado de mensajes ✅
+ * 2. Integración con streaming de respuestas ✅
  * 3. Persistencia de conversación
- * 4. Manejo de errores
- * 5. Nueva conversación
+ * 4. Manejo de errores ✅
+ * 5. Nueva conversación ✅
  *
  * Este hook debe abstraer toda la lógica del chat
  * para que el componente Chat sea más simple
  */
-export function useChat({ studentId, onError }: UseChatOptions) {
+export function useChat({ studentId, conversationId }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [error, setError] = useState(false);
+  const eventSourceRef = useRef<{ close: () => void } | null>(null);
   const queryClient = useQueryClient();
+
+  const historyQuery = useQuery({
+    queryKey: ['chatHistory', studentId, conversationId],
+    queryFn: async () => {
+      if (!conversationId) return null;
+      return api.getChatHistory(studentId, conversationId);
+    },
+    enabled: !!conversationId,
+    staleTime: 30000,
+    retry: 1,
+  });
+
+  const handleOnError = useCallback((error: Error) => {
+    console.error('Error in chat', error);
+    setError(true);
+  }, []);
 
   // Mutation para enviar mensajes
   const sendMutation = useMutation({
@@ -44,6 +62,7 @@ export function useChat({ studentId, onError }: UseChatOptions) {
     },
     onMutate: async (message) => {
       // Optimistic update
+      setError(false);
       const tempId = `temp-${Date.now()}`;
       const userMessage: Message = {
         id: tempId,
@@ -56,11 +75,6 @@ export function useChat({ studentId, onError }: UseChatOptions) {
       return { tempId };
     },
     onSuccess: (data, _, context) => {
-      // Actualizar conversationId si es nueva
-      if (!conversationId && data.conversationId) {
-        setConversationId(data.conversationId);
-      }
-
       // Añadir respuesta del asistente
       const assistantMessage: Message = {
         id: data.assistantMessage._id,
@@ -72,59 +86,149 @@ export function useChat({ studentId, onError }: UseChatOptions) {
       setMessages((prev) => [...prev, assistantMessage]);
     },
     onError: (error: Error) => {
-      onError?.(error);
+      handleOnError(error);
     },
   });
 
   // TODO: Implementar streaming de respuestas
   const sendWithStreaming = useCallback(
     async (message: string) => {
-      // 1. Añadir mensaje del usuario
-      // 2. Iniciar conexión SSE o WebSocket
-      // 3. Actualizar mensaje del asistente token por token
-      // 4. Cerrar conexión al terminar
+      setError(false);
+      const tempUserId = `temp-user-${Date.now()}`;
+      const userMessage: Message = {
+        id: tempUserId,
+        role: 'user',
+        content: message,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMessage]);
 
-      // Por ahora usar la versión sin streaming
-      sendMutation.mutate(message);
+      const tempAssistantId = `temp-assistant-${Date.now()}`;
+      const assistantMessage: Message = {
+        id: tempAssistantId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      setIsStreaming(true);
+
+      try {
+        eventSourceRef.current = api.streamChatResponse(
+          {
+            studentId,
+            message,
+            conversationId: conversationId || undefined,
+          },
+          {
+            onStart: (data) => {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === tempUserId
+                    ? { ...msg, id: data.userMessageId }
+                    : msg,
+                ),
+              );
+            },
+
+            onToken: (token) => {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === tempAssistantId
+                    ? { ...msg, content: msg.content + token }
+                    : msg,
+                ),
+              );
+            },
+
+            onDone: (data) => {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === tempAssistantId
+                    ? {
+                        ...msg,
+                        id: data.assistantMessageId,
+                        isStreaming: false,
+                      }
+                    : msg,
+                ),
+              );
+
+              setIsStreaming(false);
+              eventSourceRef.current = null;
+
+              queryClient.invalidateQueries({
+                queryKey: ['chatHistory', studentId, conversationId],
+              });
+            },
+
+            onError: (error) => {
+              setMessages((prev) =>
+                prev.filter((msg) => msg.id !== tempAssistantId),
+              );
+
+              setIsStreaming(false);
+              eventSourceRef.current = null;
+              handleOnError(error);
+            },
+          },
+        );
+      } catch (error: unknown) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempAssistantId));
+
+        setIsStreaming(false);
+        handleOnError(error as Error);
+      }
     },
-    [sendMutation]
+    [studentId, conversationId, handleOnError],
   );
 
   // TODO: Implementar nueva conversación
-  const startNewConversation = useCallback(async () => {
-    try {
-      const result = await api.startNewConversation(studentId);
-      setConversationId(result._id);
+  const newConversationMutation = useMutation({
+    mutationFn: (initialContext?: string) =>
+      api.startNewConversation(studentId, initialContext),
+    onSuccess: (data) => {
       setMessages([]);
-      return result;
-    } catch (error) {
-      onError?.(error as Error);
-    }
-  }, [studentId, onError]);
 
-  // TODO: Implementar carga de historial
-  const loadHistory = useCallback(async () => {
-    if (!conversationId) return;
+      queryClient.invalidateQueries({
+        queryKey: ['chatHistory', studentId, conversationId],
+      });
 
-    try {
-      const history = await api.getChatHistory(studentId, conversationId);
-      // Transformar y establecer mensajes
-      // setMessages(...)
-    } catch (error) {
-      onError?.(error as Error);
+      return data;
+    },
+    onError: (error: Error) => {
+      handleOnError(error);
+    },
+  });
+
+  useEffect(() => {
+    if (historyQuery.data?.messages) {
+      const transformedMessages: Message[] = historyQuery.data.messages.map(
+        (msg: any) => ({
+          id: msg._id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.createdAt),
+          isStreaming: false,
+        }),
+      );
+      setMessages(transformedMessages);
     }
-  }, [studentId, conversationId, onError]);
+  }, [historyQuery.data]);
 
   return {
     messages,
     conversationId,
-    isLoading: sendMutation.isPending,
     isStreaming,
-    error: sendMutation.error,
-    sendMessage: sendMutation.mutate,
+    isLoadingHistory: historyQuery.isLoading,
+    historyError: historyQuery.error,
+    error,
+    isCreatingConversation: newConversationMutation.isPending,
     sendWithStreaming,
-    startNewConversation,
-    loadHistory,
+    startNewConversation: (initialContext?: string) =>
+      newConversationMutation.mutateAsync(initialContext),
     clearMessages: () => setMessages([]),
   };
 }

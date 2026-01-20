@@ -103,11 +103,11 @@ export class StudentService {
    * 📝 TODO: Implementar estadísticas detalladas
    *
    * El candidato debe implementar este método para retornar:
-   * - totalStudyHours: Total de horas de estudio
-   * - completedVsInProgress: { completed: number, inProgress: number }
-   * - studyStreak: Días consecutivos de estudio
-   * - weeklyAverageProgress: Promedio de progreso semanal
-   * - timeByCategory: { [category: string]: number } - minutos por categoría
+   * - totalStudyHours: Total de horas de estudio ✅
+   * - completedVsInProgress: { completed: number, inProgress: number } ✅
+   * - studyStreak: Días consecutivos de estudio ✅
+   * - weeklyAverageProgress: Promedio de progreso semanal ✅
+   * - timeByCategory: { [category: string]: number } - minutos por categoría ✅
    *
    * Hints:
    * - Usar agregaciones de MongoDB ($group, $sum, etc.)

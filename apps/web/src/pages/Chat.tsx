@@ -1,32 +1,25 @@
-import { useState, useRef, useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import styled from 'styled-components';
-import { Bot, Hand, Lightbulb, BookOpen } from 'lucide-react';
-import { ChatMessage } from '../components/ChatMessage';
+import { BookOpen, Bot, Hand, Lightbulb } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import styled, { keyframes } from 'styled-components';
 import { ChatInput } from '../components/ChatInput';
-import { api } from '../services/api';
+import { ChatMessage } from '../components/ChatMessage';
+import { useChat } from '../hooks/useChat';
 
 interface ChatProps {
   studentId: string;
-}
-
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
 }
 
 /**
  * 📝 TODO: El candidato debe completar esta página
  *
  * Funcionalidades a implementar:
- * 1. Cargar historial de conversación
- * 2. Implementar streaming de respuestas (mostrar token por token)
- * 3. Manejar errores de API
- * 4. Implementar "Nueva conversación"
- * 5. Auto-scroll al nuevo mensaje
- * 6. Indicador de "escribiendo..."
+ * 1. Cargar historial de conversación ✅
+ * 2. Implementar streaming de respuestas (mostrar token por token) ✅
+ * 3. Manejar errores de API ✅
+ * 4. Implementar "Nueva conversación" ✅
+ * 5. Auto-scroll al nuevo mensaje ✅
+ * 6. Indicador de "escribiendo..." ✅
  *
  * Bonus:
  * - Persistir conversación en localStorage
@@ -34,94 +27,83 @@ interface Message {
  * - Exportar conversación
  */
 export function Chat({ studentId }: ChatProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const { conversationId: urlConversationId } = useParams<{
+    conversationId?: string;
+  }>();
+  const navigate = useNavigate();
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(urlConversationId ?? null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const queryClient = useQueryClient();
 
-  // TODO: Implementar carga del historial
-  // const { data: history } = useQuery({
-  //   queryKey: ['chatHistory', studentId, conversationId],
-  //   queryFn: () => api.getChatHistory(studentId, conversationId),
-  //   enabled: !!conversationId,
-  // });
-
-  // Mutation para enviar mensaje
-  const sendMessageMutation = useMutation({
-    mutationFn: (message: string) =>
-      api.sendChatMessage({
-        studentId,
-        message,
-        conversationId: conversationId || undefined,
-      }),
-    onMutate: (message) => {
-      // Añadir mensaje del usuario optimísticamente
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: message,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, userMessage]);
-      setIsTyping(true);
-    },
-    onSuccess: (data) => {
-      // Actualizar con la respuesta del asistente
-      if (!conversationId && data.conversationId) {
-        setConversationId(data.conversationId);
-      }
-
-      const assistantMessage: Message = {
-        id: data.assistantMessage._id,
-        role: 'assistant',
-        content: data.assistantMessage.content,
-        timestamp: new Date(data.assistantMessage.createdAt),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-      setIsTyping(false);
-    },
-    onError: (error) => {
-      console.error('Error sending message:', error);
-      setIsTyping(false);
-      // TODO: Mostrar error al usuario
-    },
+  const {
+    messages,
+    isStreaming,
+    isLoadingHistory,
+    error,
+    sendWithStreaming,
+    startNewConversation,
+    isCreatingConversation,
+  } = useChat({
+    studentId: studentId!,
+    conversationId: currentConversationId,
   });
+
+  const handleNewConversation = async () => {
+    try {
+      const newConv = await startNewConversation();
+      if (newConv) {
+        navigate(`/chat/${newConv._id}`);
+      }
+    } catch (error) {}
+  };
 
   // Auto-scroll cuando hay nuevos mensajes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
-
-  // TODO: Implementar nueva conversación
-  const handleNewConversation = async () => {
-    // setMessages([]);
-    // setConversationId(null);
-    // TODO: Llamar a api.startNewConversation(studentId)
-    alert('TODO: Implementar nueva conversación');
-  };
+  }, [messages, isStreaming]);
 
   return (
     <Container>
       <ChatHeader>
         <HeaderTitle>
-          <HeaderIcon><Bot size={32} /></HeaderIcon>
+          <HeaderIcon>
+            <Bot size={32} />
+          </HeaderIcon>
           <div>
             <h2>Asistente de Estudios</h2>
             <HeaderSubtitle>Pregúntame sobre tus cursos</HeaderSubtitle>
           </div>
         </HeaderTitle>
 
-        <NewChatButton onClick={handleNewConversation}>
+        <NewChatButton
+          data-testid='button-new-conversation'
+          disabled={isCreatingConversation}
+          onClick={handleNewConversation}
+        >
           + Nueva conversación
         </NewChatButton>
       </ChatHeader>
 
       <MessagesContainer>
-        {messages.length === 0 && (
+        {isLoadingHistory ? (
+          <LoadingHistoryContainer>
+            <LoadingDots>
+              <LoadingDot $delay={0} />
+              <LoadingDot $delay={200} />
+              <LoadingDot $delay={400} />
+            </LoadingDots>
+            <LoadingText>Cargando historial de la conversación...</LoadingText>
+          </LoadingHistoryContainer>
+        ) : messages.length === 0 ? (
           <WelcomeMessage>
-            <WelcomeIcon><Hand size={48} /></WelcomeIcon>
-            <WelcomeTitle>¡Hola! Soy tu asistente de estudios</WelcomeTitle>
+            <WelcomeIcon>
+              <Hand size={48} />
+            </WelcomeIcon>
+            <WelcomeTitle data-testid='title-new-conversation'>
+              ¡Hola! Soy tu asistente de estudios
+            </WelcomeTitle>
             <WelcomeText>
               Puedo ayudarte con:
               <ul>
@@ -131,41 +113,63 @@ export function Chat({ studentId }: ChatProps) {
               </ul>
             </WelcomeText>
             <SuggestionButtons>
-              <SuggestionButton onClick={() => sendMessageMutation.mutate('¿Cómo puedo mejorar mi técnica de estudio?')}>
+              <SuggestionButton
+                onClick={() =>
+                  sendWithStreaming(
+                    '¿Cómo puedo mejorar mi técnica de estudio?',
+                  )
+                }
+              >
                 <Lightbulb size={14} /> Técnicas de estudio
               </SuggestionButton>
-              <SuggestionButton onClick={() => sendMessageMutation.mutate('¿Qué curso me recomiendas empezar?')}>
+              <SuggestionButton
+                onClick={() =>
+                  sendWithStreaming('¿Qué curso me recomiendas empezar?')
+                }
+              >
                 <BookOpen size={14} /> Recomendaciones
               </SuggestionButton>
             </SuggestionButtons>
           </WelcomeMessage>
+        ) : (
+          <>
+            {messages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                role={message.role}
+                content={message.content}
+                timestamp={message.timestamp}
+                isStreaming={message.isStreaming}
+              />
+            ))}
+            <div ref={messagesEndRef} />
+          </>
         )}
-
-        {messages.map((message) => (
-          <ChatMessage
-            key={message.id}
-            role={message.role}
-            content={message.content}
-            timestamp={message.timestamp}
-          />
-        ))}
-
-        {/* TODO: Implementar indicador de typing con streaming */}
-        {isTyping && (
-          <ChatMessage role="assistant" content="" isLoading />
-        )}
-
-        <div ref={messagesEndRef} />
       </MessagesContainer>
-
+      {error && (
+        <ErrorText data-testid='error-chat'>
+          Tuvimos un problema de red. Por favor intentalo nuevamente
+        </ErrorText>
+      )}
       <ChatInput
-        onSend={(message) => sendMessageMutation.mutate(message)}
-        disabled={sendMessageMutation.isPending}
-        placeholder="Escribe tu pregunta..."
+        onSend={(message) => sendWithStreaming(message)}
+        disabled={isStreaming}
+        placeholder='Escribe tu pregunta...'
       />
     </Container>
   );
 }
+
+const pulse = keyframes`
+  0%, 60%, 100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+`;
 
 const Container = styled.div`
   display: flex;
@@ -220,6 +224,11 @@ const NewChatButton = styled.button`
   &:hover {
     border-color: var(--color-primary);
     color: var(--color-primary);
+  }
+
+  &:disabled {
+    background: var(--color-border);
+    cursor: not-allowed;
   }
 `;
 
@@ -289,4 +298,40 @@ const SuggestionButton = styled.button`
     color: white;
     border-color: var(--color-primary);
   }
+`;
+
+const LoadingHistoryContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xl);
+  min-height: 200px;
+`;
+
+const LoadingDots = styled.div`
+  display: flex;
+  gap: 8px;
+  align-items: center;
+`;
+
+const LoadingDot = styled.div<{ $delay?: number }>`
+  width: 12px;
+  height: 12px;
+  background-color: var(--color-primary);
+  border-radius: 50%;
+  animation: ${pulse} 1.4s ease-in-out infinite;
+  animation-delay: ${({ $delay }) => $delay || 0}ms;
+`;
+
+const LoadingText = styled.p`
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  margin: 0;
+`;
+
+const ErrorText = styled.p`
+  font-size: 14px;
+  color: red;
 `;

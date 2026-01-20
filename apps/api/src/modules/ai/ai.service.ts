@@ -66,12 +66,8 @@ Reglas:
     userMessage: string,
     history: MessageHistory[] = [],
   ): Promise<AiResponse> {
-    if (!userMessage?.trim()) {
-      throw new Error('User message cannot be empty');
-    }
-
-    const MAX_HISTORY_MESSAGES = 10;
-    const limitedHistory = history.slice(-MAX_HISTORY_MESSAGES);
+    this.validateUserMessage(userMessage);
+    const limitedHistory = this.validateAndLimitHistory(history);
 
     const messages = [
       { role: 'system' as const, content: this.baseSystemPrompt },
@@ -104,7 +100,7 @@ Reglas:
   }
 
   /**
-   * 📝 TODO: Implementar streaming de respuestas
+   * 📝 TODO: Implementar streaming de respuestas ✅
    *
    * El candidato debe implementar streaming real con OpenAI.
    * Consultar la documentación oficial de OpenAI para la implementación.
@@ -112,15 +108,20 @@ Reglas:
   async *generateStreamResponse(
     userMessage: string,
     history: MessageHistory[] = [],
-  ): AsyncGenerator<string> {
-    // TODO: Implementar streaming real con OpenAI
-    // Placeholder actual - simula streaming
-    const placeholder = await this.generatePlaceholderResponse(userMessage);
-    const words = placeholder.content.split(' ');
+  ): AsyncGenerator<any> {
+    this.validateUserMessage(userMessage);
+    const limitedHistory = this.validateAndLimitHistory(history);
 
-    for (const word of words) {
-      yield word + ' ';
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    const messages = [
+      { role: 'system' as const, content: this.baseSystemPrompt },
+      ...limitedHistory,
+      { role: 'user' as const, content: userMessage.trim() },
+    ];
+
+    const stream = await this.createOpenAIStream(messages);
+
+    for await (const chunk of stream) {
+      yield chunk;
     }
   }
 
@@ -152,38 +153,13 @@ Reglas:
   async generateResponseWithRAG(
     userMessage: string,
     history: MessageHistory[] = [],
-    relevantContext?: string[],
+    relevantContext: string[] = [],
   ): Promise<AiResponse> {
-    if (!userMessage?.trim()) {
-      throw new HttpException(
-        'UserMessage cannot be empty',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    this.validateUserMessage(userMessage);
+    const limitedHistory = this.validateAndLimitHistory(history);
 
-    const MAX_HISTORY_MESSAGES = 10;
-    const limitedHistory = history.slice(-MAX_HISTORY_MESSAGES);
-
-    let systemPrompt = this.baseSystemPrompt;
-
-    if (relevantContext && relevantContext.length > 0) {
-      const contextText = relevantContext
-        .map((chunk, index) => `[${index + 1}] ${chunk}`)
-        .join('\n\n');
-
-      systemPrompt = `${this.baseSystemPrompt}
-        
-          CONTEXTO RELEVANTE DE LOS CURSOS:
-          Utiliza la siguiente información de los cursos para responder la pregunta del estudiante. Si la pregunta no está relacionada con este contexto, responde de forma general pero amigable.
-          
-          ${contextText}
-          
-          Instrucciones adicionales:
-            - Basa tu respuesta principalmente en el contexto proporcionado
-            - Si el contexto no es suficiente, indícalo y ofrece una respuesta general
-            - Cita ejemplos específicos del contexto cuando sea apropiado
-            - Mantén un tono educativo y motivador`;
-    }
+    // Build prompt with RAG
+    let systemPrompt = this.buildRAGSystemPrompt(relevantContext);
 
     const messages = [
       { role: 'system' as const, content: systemPrompt },
@@ -215,25 +191,28 @@ Reglas:
     return response;
   }
 
-  /**
-   * Genera una respuesta placeholder para desarrollo
-   */
-  private generatePlaceholderResponse(userMessage: string): AiResponse {
-    const responses = [
-      '¡Hola! Soy tu asistente de estudios. Veo que tienes una pregunta interesante. Para ayudarte mejor, ¿podrías darme más detalles sobre el tema específico del curso en el que necesitas ayuda?',
-      'Entiendo tu duda. Este es un tema importante que muchos estudiantes encuentran desafiante. Te sugiero que revisemos los conceptos paso a paso. ¿Por dónde te gustaría empezar?',
-      '¡Excelente pregunta! Esto demuestra que estás pensando críticamente sobre el material. Déjame darte una explicación que te ayude a entender mejor el concepto.',
-      'Gracias por compartir tu pregunta. Para darte la mejor ayuda posible, necesito que OpenAI esté configurado. Por ahora, te recomiendo revisar el material del curso y volver con preguntas específicas.',
+  async *generateStreamResponseWithRAG(
+    userMessage: string,
+    history: MessageHistory[] = [],
+    relevantContext: string[] = [],
+  ): AsyncGenerator<any> {
+    this.validateUserMessage(userMessage);
+    const limitedHistory = this.validateAndLimitHistory(history);
+
+    // Build prompt with RAG
+    let systemPrompt = this.buildRAGSystemPrompt(relevantContext);
+
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      ...limitedHistory,
+      { role: 'user' as const, content: userMessage.trim() },
     ];
 
-    const randomResponse =
-      responses[Math.floor(Math.random() * responses.length)];
+    const stream = await this.createOpenAIStream(messages);
 
-    return {
-      content: `[RESPUESTA PLACEHOLDER - Implementar OpenAI]\n\n${randomResponse}`,
-      tokensUsed: 0,
-      model: 'placeholder',
-    };
+    for await (const chunk of stream) {
+      yield chunk;
+    }
   }
 
   private async callOpenAiWithRetry(
@@ -276,6 +255,75 @@ Reglas:
     }
 
     handleOpenAIError(lastError, this.logger);
+  }
+
+  /**
+   * Helper crear stream de OpenAI
+   */
+  private async createOpenAIStream(
+    messages: Array<MessageHistory>,
+  ): Promise<AsyncIterable<any>> {
+    try {
+      const stream = await this.openai.chat.completions.create({
+        model: 'gpt-4',
+        messages,
+        temperature: 0.7,
+        max_tokens: 2000,
+        stream: true,
+      });
+
+      return stream;
+    } catch (error) {
+      this.logger.error('Error de OpenAI en streaming:', error.message);
+      handleOpenAIError(error);
+    }
+  }
+
+  /**
+   * Helper construir system prompt con RAG
+   */
+  private buildRAGSystemPrompt(relevantContext: string[]): string {
+    if (!relevantContext || relevantContext.length === 0) {
+      return this.baseSystemPrompt;
+    }
+
+    const contextText = relevantContext
+      .map((chunk, index) => `[${index + 1}] ${chunk}`)
+      .join('\n\n');
+
+    return `${this.baseSystemPrompt}
+    
+      CONTEXTO RELEVANTE DE LOS CURSOS:
+        Utiliza la siguiente información de los cursos para responder la pregunta del estudiante. Si la pregunta no está relacionada con este contexto, responde de forma general pero amigable.
+
+        ${contextText}
+
+        Instrucciones adicionales:
+          - Basa tu respuesta principalmente en el contexto proporcionado
+          - Si el contexto no es suficiente, indícalo y ofrece una respuesta general
+          - Cita ejemplos específicos del contexto cuando sea apropiado
+          - Mantén un tono educativo y motivador`;
+  }
+
+  private readonly MAX_HISTORY_MESSAGES = 10;
+
+  /**
+   * Helper validar y limitar historial
+   */
+  private validateAndLimitHistory(history: MessageHistory[]): MessageHistory[] {
+    return history.slice(-this.MAX_HISTORY_MESSAGES);
+  }
+
+  /**
+   * Helper validar mensaje del usuario
+   */
+  private validateUserMessage(userMessage: string): void {
+    if (!userMessage?.trim()) {
+      throw new HttpException(
+        'UserMessage cannot be empty',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   /**

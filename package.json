@@ -52,6 +52,7 @@
     "@nx/workspace": "21.2.3",
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.1.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/jest": "29.5.14",
     "@types/node": "18.19.9",
     "@types/pdfkit": "^0.17.4",

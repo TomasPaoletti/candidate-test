@@ -154,20 +154,110 @@
 
 **Consecuencias:** Mayor observabilidad del sistema. Facilita debugging (¿por qué no usó RAG?). Posibilita métricas y A/B testing futuro de parámetros RAG. Bajo overhead (solo 2 campos adicionales).
 
+### 11. Gestión de conversaciones mediante parámetros de URL
+
+**Contexto:**
+
+El sistema de chat necesitaba una forma de gestionar múltiples conversaciones y permitir la carga del historial de conversaciones existentes. El desafío era determinar cómo identificar qué conversación está activa y cuándo cargar su historial, sin interferir con la funcionalidad de streaming en tiempo real de nuevas conversaciones.
+
+Inicialmente se intentó manejar el `conversationId` como estado interno del hook `useChat`, actualizándolo automáticamente cuando llegaba del servidor durante el streaming. Sin embargo, esto causaba problemas:
+
+- El historial se cargaba automáticamente incluso en conversaciones nuevas (mostrando un loading innecesario)
+- El efecto de "typing" se interrumpía porque el cambio de `conversationId` disparaba una recarga del historial
+- La experiencia de usuario era confusa con múltiples estados de carga simultáneos
+
+**Opciones consideradas:**
+
+1. **Estado interno del hook con sincronización automática:**
+   - Mantener `conversationId` como estado interno en `useChat`
+   - Actualizar automáticamente cuando el servidor retorna el ID en `onStart` del streaming
+   - Sincronizar con el componente mediante callbacks o estado compartido
+   - **Problema:** Causa race conditions entre streaming y carga de historial
+
+2. **Parámetros de URL (route-based):**
+   - Usar React Router para manejar rutas: `/chat` (existente) y `/chat/:conversationId` (nueva)
+   - El `conversationId` viene de `useParams()` de la URL
+   - La navegación entre conversaciones se hace con `navigate()`
+   - El historial solo se carga cuando hay un `conversationId` en la URL
+
+**Decisión:**
+
+Se eligió **usar parámetros de URL (route-based)** para gestionar las conversaciones.
+
+**Consecuencias:**
+
+**Positivas:**
+
+- Experiencia de usuario fluida sin cargas innecesarias
+- El streaming funciona sin interrupciones
+- Historial de navegación del navegador funciona correctamente
+- URLs bookmarkeables y compartibles
+- Estado predecible y fácil de debuggear
+- Tests más simples y confiables
+- Escalable para futuras features (ej: lista de conversaciones en sidebar)
+
+**Negativas:**
+
+- Requiere configuración de rutas en React Router
+- Ligeramente más código de setup inicial (rutas + navegación)
+- Los tests necesitan mockear `useParams` y `useNavigate`
+
 ---
 
 ### 2. Streaming de respuestas (SSE vs WebSocket)
 
-**Contexto:** [...]
+**Contexto:**
+
+Para implementar el streaming de respuestas del chat de IA, necesitábamos elegir una tecnología que permitiera enviar tokens de texto del servidor al cliente de forma incremental y en tiempo real, proporcionando una experiencia de usuario fluida mientras el modelo de IA genera la respuesta.
 
 **Opciones consideradas:**
 
-1. Server-Sent Events (SSE)
-2. WebSocket
+1. **Server-Sent Events (SSE):**
+   - Comunicación unidireccional (servidor → cliente)
+   - Protocolo HTTP estándar
+   - API nativa del navegador (`EventSource`)
+   - Reconexión automática
+   - Más simple de implementar
 
-**Decisión:** [...]
+2. **WebSocket:**
+   - Comunicación bidireccional full-duplex
+   - Protocolo WS/WSS separado
+   - Requiere handshake HTTP inicial
+   - Mayor flexibilidad pero más complejo
+   - Mejor para aplicaciones en tiempo real bidireccionales
 
-**Consecuencias:** [...]
+**Decisión:**
+
+Se eligió **Server-Sent Events (SSE)** para implementar el streaming de respuestas del chat.
+
+**Razones:**
+
+1. **Comunicación unidireccional suficiente:** Solo necesitamos enviar tokens del servidor al cliente. El envío de mensajes del usuario se hace mediante peticiones HTTP POST tradicionales, por lo que no necesitamos comunicación bidireccional.
+
+2. **Simplicidad de implementación:** SSE utiliza el protocolo HTTP estándar, lo que simplifica la infraestructura. No requiere configuración especial de servidores proxy, load balancers o firewalls que sí podría necesitar WebSocket.
+
+3. **API nativa del navegador:** `EventSource` está disponible nativamente en todos los navegadores modernos, sin necesidad de librerías adicionales. Esto reduce el bundle size del frontend.
+
+4. **Reconexión automática:** SSE maneja automáticamente la reconexión si se pierde la conexión, sin necesidad de implementar lógica adicional.
+
+5. **Mejor para el caso de uso:** Para streaming de texto desde un modelo de IA, donde la comunicación es inherentemente unidireccional, SSE es la herramienta correcta y más eficiente.
+
+6. **Menor overhead:** SSE tiene menos overhead de protocolo comparado con WebSocket para comunicación unidireccional.
+
+**Consecuencias:**
+
+**Positivas:**
+
+- ✅ Implementación más rápida y código más simple
+- ✅ Mejor compatibilidad con infraestructura HTTP existente
+- ✅ Menor superficie de ataque de seguridad (usa HTTP/HTTPS estándar)
+- ✅ Debugging más fácil (se puede inspeccionar con herramientas HTTP estándar)
+- ✅ Reconexión automática sin código adicional
+- ✅ Menor complejidad en testing (mocks más simples)
+
+**Negativas:**
+
+- ⚠️ Si en el futuro necesitamos comunicación bidireccional en tiempo real (ej: typing indicators, presencia de usuarios, colaboración), tendríamos que migrar a WebSocket
 
 ---
 
@@ -175,33 +265,73 @@
 
 ### Ubicación
 
-- **Archivo:** [Ruta del archivo]
-- **Línea(s):** [Números de línea]
-- **Método:** [Nombre del método]
+- **Archivo:** `apps/api/src/modules/chat/chat.service.ts`
+- **Línea(s):** 78-83
+- **Método:** `startNewConversation`
 
 ### Descripción del Bug
 
-[Explica qué hace mal el código]
+El método `startNewConversation` modifica por referencia el historial de conversaciones previas almacenado en el cache, causando que se borre el historial de conversaciones anteriores cuando se inicia una nueva conversación.
+
+Cuando un usuario inicia una nueva conversación, el historial de sus conversaciones previas se pierde permanentemente del cache, aunque estos datos aún existan en la base de datos.
 
 ### Causa Raíz
 
-[Explica por qué ocurre el bug]
+El bug ocurre porque el código asigna la referencia del array del cache directamente a la variable `history`, en lugar de crear una copia:
+
+```typescript
+if (previousConversations.length > 0) {
+  const prevId = previousConversations[0]._id.toString();
+  const cachedHistory = this.conversationCache.get(prevId);
+  history = cachedHistory || []; //  Asigna la referencia, no una copia
+  history.length = 0; //  Esto modifica el array original en el cache
+}
+```
+
+Cuando se ejecuta `history.length = 0`, no solo se limpia la variable local `history`, sino que también se está modificando directamente el array que está almacenado en `conversationCache`, porque ambas variables apuntan al mismo objeto en memoria.
 
 ### Solución Propuesta
 
 ```typescript
-// Código corregido
+if (previousConversations.length > 0) {
+  const prevId = previousConversations[0]._id.toString();
+  const cachedHistory = this.conversationCache.get(prevId);
+  history = cachedHistory ? [...cachedHistory] : [];
+  history.length = 0;
+} else {
+  history = [];
+}
 ```
 
 ### Cómo lo descubriste
 
-[Explica el proceso de debugging]
+El bug fue descubierto durante la implementación de tests unitarios para el método `startNewConversation`.
+
+**Proceso:**
+
+1. Al escribir el test `should not affect history of previous conversations`, se creó un escenario donde:
+   - Se simula una conversación previa con 4 mensajes en el cache
+   - Se agrega manualmente este historial al `conversationCache`
+   - Se llama a `startNewConversation()` para crear una nueva conversación
+   - Se verifica que el historial de la conversación anterior permanece intacto
+
+2. El test falló con el siguiente error:
+
+```
+   Expected: Array with 4 messages
+   Received: Array with 0 messages (empty array)
+```
+
+3. Se confirmó el bug ejecutando el test antes y después del fix:
+   - **Antes del fix:** El test falla porque el historial previo se borra
+   - **Después del fix:** El test pasa porque cada conversación mantiene su propio historial
 
 ---
 
 ## Suposiciones Realizadas
 
-1. **[Suposición]:** [Justificación]
+1. **Frontend utiliza Vitest en lugar de Jest:** El proyecto frontend está configurado con Vite como build tool, y Vitest es el test runner nativo y recomendado para proyectos Vite. Aunque el proyecto backend usa Jest (estándar en NestJS), mantener Vitest en el frontend es la mejor práctica porque: (a) está optimizado para trabajar con Vite y usa la misma configuración de transformación, (b) es más rápido debido a su integración nativa con Vite, y (c) el `tsconfig.spec.json` ya incluye los tipos de Vitest. Convertir los tests de sintaxis Jest a Vitest solo requirió cambiar `jest` por `vi` y agregar `import { vi } from 'vitest'`.
+
 2. **[Suposición]:** [Justificación]
 
 ---

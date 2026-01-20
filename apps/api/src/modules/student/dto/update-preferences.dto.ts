@@ -1,5 +1,5 @@
-import { IsString, IsBoolean, IsOptional, IsIn } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsIn, IsOptional } from 'class-validator';
 
 export class UpdatePreferencesDto {
   @ApiPropertyOptional({ enum: ['light', 'dark'] })
@@ -9,8 +9,8 @@ export class UpdatePreferencesDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
-  language?: string;
+  @IsIn(['en', 'es'])
+  language?: 'en' | 'es';
 
   @ApiPropertyOptional()
   @IsOptional()

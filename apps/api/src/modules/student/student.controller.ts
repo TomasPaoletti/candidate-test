@@ -47,11 +47,11 @@ export class StudentController {
    * 📝 TODO: Implementar endpoint de estadísticas
    *
    * Este endpoint debe retornar estadísticas detalladas del estudiante:
-   * - Total de horas de estudio
-   * - Cursos completados vs en progreso
-   * - Racha de días consecutivos de estudio
-   * - Promedio de progreso semanal
-   * - Distribución de tiempo por categoría de curso
+   * - Total de horas de estudio ✅
+   * - Cursos completados vs en progreso ✅
+   * - Racha de días consecutivos de estudio ✅
+   * - Promedio de progreso semanal ✅
+   * - Distribución de tiempo por categoría de curso ✅
    *
    * Hint: Usar agregaciones de MongoDB para calcular las estadísticas
    */

@@ -214,7 +214,7 @@ describe('StudentController', () => {
       const studentId = '507f1f77bcf86cd799439011';
       const updateDto = {
         theme: 'dark' as const,
-        language: 'en',
+        language: 'en' as 'en' | 'es',
         notifications: false,
       };
       mockStudentService.updatePreferences.mockResolvedValue(mockStudent);

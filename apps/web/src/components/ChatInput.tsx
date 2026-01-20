@@ -1,4 +1,4 @@
-import { useState, KeyboardEvent } from 'react';
+import { KeyboardEvent, useState } from 'react';
 import styled from 'styled-components';
 
 interface ChatInputProps {
@@ -22,7 +22,11 @@ interface ChatInputProps {
  * - Historial de mensajes con flechas arriba/abajo
  * - Indicador de caracteres restantes
  */
-export function ChatInput({ onSend, disabled = false, placeholder = 'Escribe tu mensaje...' }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  disabled = false,
+  placeholder = 'Escribe tu mensaje...',
+}: ChatInputProps) {
   const [message, setMessage] = useState('');
 
   // TODO: Implementar manejo de teclas (Enter para enviar, Shift+Enter para nueva línea)
@@ -55,9 +59,12 @@ export function ChatInput({ onSend, disabled = false, placeholder = 'Escribe tu 
         {/* TODO: Añadir contador de caracteres */}
       </InputWrapper>
 
-      <SendButton onClick={handleSend} disabled={disabled || !message.trim()}>
-        {/* TODO: Cambiar icono cuando está enviando */}
-        ➤
+      <SendButton
+        data-testid='send-message'
+        onClick={handleSend}
+        disabled={disabled || !message.trim()}
+      >
+        {/* TODO: Cambiar icono cuando está enviando */}➤
       </SendButton>
     </Container>
   );

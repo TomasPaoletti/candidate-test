@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { Observable } from 'rxjs';
 import { AiService } from '../ai/ai.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -38,58 +39,38 @@ export class ChatService {
    * ✅ PARCIALMENTE IMPLEMENTADO - Enviar mensaje y obtener respuesta
    *
    * El candidato debe completar:
-   * - Integración con OpenAI para obtener respuesta real
-   * - Implementar streaming de la respuesta
-   * - Manejo de errores de la API de OpenAI
+   * - Integración con OpenAI para obtener respuesta real ✅
+   * - Implementar streaming de la respuesta ✅
+   * - Manejo de errores de la API de OpenAI ✅
    */
   async sendMessage(dto: SendMessageDto) {
     const { studentId, message, conversationId } = dto;
 
-    // Obtener o crear conversación
-    let conversation = conversationId
-      ? await this.conversationModel.findById(conversationId)
-      : await this.createConversation(studentId);
-
-    if (!conversation) {
-      conversation = await this.createConversation(studentId);
-    }
-
-    // Guardar mensaje del usuario
-    const userMessage = await this.chatMessageModel.create({
-      conversationId: conversation._id,
-      role: 'user',
-      content: message,
-    });
-
-    // Obtener historial para contexto
-    const history = await this.getConversationHistory(
-      conversation._id.toString(),
-    );
-
     try {
-      const searchResults = await this.knowledgeService.searchSimilar(message, {
-        limit: 5,
-        minScore: 0.5,
+      const conversation = await this.getOrCreateConversation(
+        studentId,
+        conversationId,
+      );
+
+      const userMessage = await this.chatMessageModel.create({
+        conversationId: conversation._id,
+        role: 'user',
+        content: message,
       });
 
-      let aiResponse;
+      const history = await this.getConversationHistory(
+        conversation._id.toString(),
+      );
 
-      if (searchResults.length > 0) {
-        // Relevant context
-        const relevantContext = searchResults.map((result) => result.content);
+      const ragContext = await this.getRAGContext(message);
 
-        this.logger.log(`Find ${searchResults.length} chunks relevants. `);
-
-        aiResponse = await this.aiService.generateResponseWithRAG(
-          message,
-          history,
-          relevantContext,
-        );
-      } else {
-        this.logger.log('No relevant context found. Using normal response.');
-
-        aiResponse = await this.aiService.generateResponse(message, history);
-      }
+      const aiResponse = ragContext.hasContext
+        ? await this.aiService.generateResponseWithRAG(
+            message,
+            history,
+            ragContext.context,
+          )
+        : await this.aiService.generateResponse(message, history);
 
       const assistantMessage = await this.chatMessageModel.create({
         conversationId: conversation._id,
@@ -98,15 +79,16 @@ export class ChatService {
         metadata: {
           tokensUsed: aiResponse.tokensUsed,
           model: aiResponse.model,
-          usedRAG: searchResults.length > 0,
-          relevantChunks: searchResults.length,
+          usedRAG: ragContext.hasContext,
+          relevantChunks: ragContext.resultsCount,
         },
       });
 
-      await this.conversationModel.findByIdAndUpdate(conversation._id, {
-        lastMessageAt: new Date(),
-        $inc: { messageCount: 2 },
-      });
+      await this.updateConversationAndCache(
+        conversation._id,
+        message,
+        aiResponse.content,
+      );
 
       return {
         conversationId: conversation._id,
@@ -126,7 +108,6 @@ export class ChatService {
     const conversation = await this.createConversation(studentId);
     const conversationIdStr = conversation._id.toString();
 
-    // Obtener conversaciones anteriores para reutilizar estructura
     const previousConversations = await this.conversationModel
       .find({ studentId: new Types.ObjectId(studentId), isActive: false })
       .sort({ createdAt: -1 })
@@ -137,7 +118,8 @@ export class ChatService {
     if (previousConversations.length > 0) {
       const prevId = previousConversations[0]._id.toString();
       const cachedHistory = this.conversationCache.get(prevId);
-      history = cachedHistory || [];
+      history = cachedHistory ? [...cachedHistory] : [];
+      // history = cachedHistory || []; BUG ENCONTRADO
       history.length = 0;
     } else {
       history = [];
@@ -170,15 +152,78 @@ export class ChatService {
    * 📝 TODO: Implementar obtención del historial de chat
    *
    * El candidato debe implementar:
-   * - Paginación del historial (limit/offset)
-   * - Ordenar mensajes por fecha (más antiguos primero)
-   * - Incluir metadata de cada mensaje
+   * - Paginación del historial (limit/offset) ✅
+   * - Ordenar mensajes por fecha (más antiguos primero) ✅
+   * - Incluir metadata de cada mensaje ✅
    */
-  async getHistory(studentId: string, conversationId?: string) {
-    // TODO: Implementar
-    throw new Error(
-      'Not implemented - El candidato debe implementar este método',
-    );
+  async getHistory(
+    studentId: string,
+    conversationId?: string,
+    page: number = 1,
+    limit: number = 50,
+  ) {
+    if (!Types.ObjectId.isValid(studentId)) {
+      throw new NotFoundException('Student not found');
+    }
+
+    const filter: any = {};
+
+    if (conversationId) {
+      if (!Types.ObjectId.isValid(conversationId)) {
+        throw new NotFoundException('Conversation not found');
+      }
+      filter.conversationId = new Types.ObjectId(conversationId);
+    } else {
+      const conversations = await this.conversationModel
+        .find({ studentId: new Types.ObjectId(studentId) })
+        .select('_id')
+        .lean();
+
+      const conversationIds = conversations.map((c) => c._id);
+      filter.conversationId = { $in: conversationIds };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [messages, totalCount] = await Promise.all([
+      this.chatMessageModel
+        .find(filter)
+        .sort({ createdAt: 1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('conversationId', 'title studentId')
+        .lean() as any,
+      this.chatMessageModel.countDocuments(filter),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasMore = page < totalPages;
+
+    let conversation: Conversation | null = null;
+    if (conversationId) {
+      conversation = await this.conversationModel
+        .findById(conversationId)
+        .lean();
+    }
+
+    return {
+      messages: messages.map((msg) => ({
+        _id: msg._id,
+        conversationId: msg.conversationId,
+        role: msg.role,
+        content: msg.content,
+        metadata: msg.metadata,
+        createdAt: msg.createdAt,
+      })),
+      conversation,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+        hasMore,
+      },
+    };
   }
 
   /**
@@ -197,13 +242,117 @@ export class ChatService {
   }
 
   /**
-   * 📝 TODO: Implementar streaming de respuestas
+   * 📝 TODO: Implementar streaming de respuestas ✅
    *
    * El candidato debe elegir e implementar SSE o WebSocket.
    */
-  async streamResponse(dto: SendMessageDto) {
-    // TODO: Implementar
-    throw new Error('Not implemented');
+  streamResponse(dto: SendMessageDto): Observable<MessageEvent> {
+    return new Observable((subscriber) => {
+      (async () => {
+        try {
+          const { studentId, message, conversationId } = dto;
+
+          const conversation = await this.getOrCreateConversation(
+            studentId,
+            conversationId,
+          );
+
+          const userMessage = await this.chatMessageModel.create({
+            conversationId: conversation._id,
+            role: 'user',
+            content: message,
+          });
+
+          subscriber.next({
+            data: JSON.stringify({
+              type: 'start',
+              conversationId: conversation._id.toString(),
+              userMessageId: userMessage._id.toString(),
+            }),
+          } as MessageEvent);
+
+          const history = await this.getConversationHistory(
+            conversation._id.toString(),
+          );
+
+          const ragContext = await this.getRAGContext(message);
+
+          const streamGenerator = ragContext.hasContext
+            ? await this.aiService.generateStreamResponseWithRAG(
+                message,
+                history,
+                ragContext.context,
+              )
+            : await this.aiService.generateStreamResponse(message, history);
+
+          let fullContent = '';
+          let tokensUsed = 0;
+
+          for await (const chunk of streamGenerator) {
+            const token = chunk.choices[0]?.delta?.content || '';
+
+            if (token) {
+              fullContent += token;
+
+              subscriber.next({
+                data: JSON.stringify({
+                  type: 'token',
+                  content: token,
+                }),
+              } as MessageEvent);
+            }
+
+            if (chunk.usage) {
+              tokensUsed = chunk.usage.total_tokens;
+            }
+          }
+
+          const assistantMessage = await this.chatMessageModel.create({
+            conversationId: conversation._id,
+            role: 'assistant',
+            content: fullContent,
+            metadata: {
+              tokensUsed,
+              model: 'gpt-4',
+              usedRAG: ragContext.hasContext,
+              relevantChunks: ragContext.resultsCount,
+            },
+          });
+
+          await this.updateConversationAndCache(
+            conversation._id,
+            message,
+            fullContent,
+          );
+
+          subscriber.next({
+            data: JSON.stringify({
+              type: 'done',
+              assistantMessageId: assistantMessage._id.toString(),
+              metadata: {
+                tokensUsed,
+                model: 'gpt-4',
+                usedRAG: ragContext.hasContext,
+                relevantChunks: ragContext.resultsCount,
+              },
+            }),
+          } as MessageEvent);
+
+          subscriber.complete();
+        } catch (error) {
+          this.logger.error('Error en streaming:', error);
+
+          subscriber.next({
+            data: JSON.stringify({
+              type: 'error',
+              message: error.message || 'Error to create resposne',
+            }),
+          } as MessageEvent);
+
+          subscriber.error(error);
+        }
+      })();
+    });
   }
 
   /**
@@ -245,5 +394,75 @@ export class ChatService {
     this.conversationCache.set(conversationId, history);
 
     return history;
+  }
+
+  /**
+   * Helper obtener o crear conversación
+   */
+  private async getOrCreateConversation(
+    studentId: string,
+    conversationId?: string,
+  ): Promise<ConversationDocument> {
+    if (conversationId) {
+      const conversation =
+        await this.conversationModel.findById(conversationId);
+      if (conversation) {
+        return conversation;
+      }
+    }
+    return this.createConversation(studentId);
+  }
+
+  /**
+   * Helper buscar contexto RAG
+   */
+  private async getRAGContext(message: string): Promise<{
+    hasContext: boolean;
+    context: string[];
+    resultsCount: number;
+  }> {
+    const searchResults = await this.knowledgeService.searchSimilar(message, {
+      limit: 5,
+      minScore: 0.5,
+    });
+
+    if (searchResults.length > 0) {
+      this.logger.log(`Found ${searchResults.length} relevant chunks.`);
+      return {
+        hasContext: true,
+        context: searchResults.map((r) => r.content),
+        resultsCount: searchResults.length,
+      };
+    } else {
+      this.logger.log('No relevant context found. Using normal response.');
+      return {
+        hasContext: false,
+        context: [],
+        resultsCount: 0,
+      };
+    }
+  }
+
+  /**
+   * Helper actualizar conversación y cache
+   */
+  private async updateConversationAndCache(
+    conversationId: Types.ObjectId,
+    userMessage: string,
+    assistantMessage: string,
+  ): Promise<void> {
+    await this.conversationModel.findByIdAndUpdate(conversationId, {
+      lastMessageAt: new Date(),
+      $inc: { messageCount: 2 },
+    });
+
+    const currentHistory =
+      this.conversationCache.get(conversationId.toString()) || [];
+    const updatedHistory = [
+      ...currentHistory,
+      { role: 'user' as const, content: userMessage },
+      { role: 'assistant' as const, content: assistantMessage },
+    ];
+    this.conversationCache.set(conversationId.toString(), updatedHistory);
   }
 }

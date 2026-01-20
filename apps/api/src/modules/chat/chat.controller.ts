@@ -1,15 +1,23 @@
 import {
-  Controller,
-  Post,
-  Get,
-  Delete,
   Body,
-  Param,
-  Query,
+  Controller,
+  Delete,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Post,
+  Query,
+  Sse,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Observable } from 'rxjs';
 import { ChatService } from './chat.service';
 import { SendMessageDto } from './dto/send-message.dto';
 
@@ -24,7 +32,10 @@ export class ChatController {
    */
   @Post('message')
   @ApiOperation({ summary: 'Enviar mensaje al chat con IA' })
-  @ApiResponse({ status: 201, description: 'Mensaje enviado y respuesta generada' })
+  @ApiResponse({
+    status: 201,
+    description: 'Mensaje enviado y respuesta generada',
+  })
   @ApiResponse({ status: 400, description: 'Datos inválidos' })
   async sendMessage(@Body() dto: SendMessageDto) {
     return this.chatService.sendMessage(dto);
@@ -38,7 +49,7 @@ export class ChatController {
   @ApiResponse({ status: 201, description: 'Conversación creada' })
   async startNewConversation(
     @Body('studentId') studentId: string,
-    @Body('initialContext') initialContext?: string
+    @Body('initialContext') initialContext?: string,
   ) {
     return this.chatService.startNewConversation(studentId, initialContext);
   }
@@ -47,34 +58,55 @@ export class ChatController {
    * 📝 TODO: Implementar obtención del historial
    *
    * El candidato debe:
-   * - Implementar paginación con query params (page, limit)
-   * - Filtrar por conversationId si se proporciona
-   * - Retornar mensajes ordenados cronológicamente
+   * - Implementar paginación con query params (page, limit) ✅
+   * - Filtrar por conversationId si se proporciona ✅
+   * - Retornar mensajes ordenados cronológicamente ✅
    */
   @Get('history/:studentId')
   @ApiOperation({ summary: 'Obtener historial de chat del estudiante' })
   @ApiParam({ name: 'studentId', description: 'ID del estudiante' })
-  @ApiQuery({ name: 'conversationId', required: false, description: 'ID de conversación específica' })
-  @ApiQuery({ name: 'page', required: false, description: 'Número de página' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Mensajes por página' })
+  @ApiQuery({
+    name: 'conversationId',
+    required: false,
+    description: 'ID de conversación específica',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Número de página (default: 1)',
+    type: Number,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Mensajes por página (default: 50, max: 100)',
+    type: Number,
+  })
   @ApiResponse({ status: 200, description: 'Historial de mensajes' })
   async getHistory(
     @Param('studentId') studentId: string,
     @Query('conversationId') conversationId?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 50,
   ) {
-    // TODO: Pasar parámetros de paginación al servicio
-    return this.chatService.getHistory(studentId, conversationId);
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 50));
+
+    return this.chatService.getHistory(
+      studentId,
+      conversationId,
+      pageNum,
+      limitNum,
+    );
   }
 
   /**
    * 📝 TODO: Implementar eliminación del historial
    *
    * El candidato debe:
-   * - Validar que el studentId corresponda a la conversación
-   * - Eliminar mensajes y opcionalmente la conversación
-   * - Retornar confirmación de eliminación
+   * - Validar que el studentId corresponda a la conversación ✅
+   * - Eliminar mensajes y opcionalmente la conversación ✅
+   * - Retornar confirmación de eliminación ✅
    */
   @Delete('history/:studentId/:conversationId')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -85,7 +117,7 @@ export class ChatController {
   @ApiResponse({ status: 404, description: 'Conversación no encontrada' })
   async deleteHistory(
     @Param('studentId') studentId: string,
-    @Param('conversationId') conversationId: string
+    @Param('conversationId') conversationId: string,
   ) {
     return this.chatService.deleteHistory(studentId, conversationId);
   }
@@ -94,22 +126,21 @@ export class ChatController {
    * 📝 TODO: Implementar endpoint de streaming
    *
    * El candidato debe elegir e implementar:
-   * - SSE: Usar @Sse() decorator y retornar Observable
+   * - SSE: Usar @Sse() decorator y retornar Observable ✅
    * - WebSocket: Crear un Gateway separado
    *
    * El endpoint debe:
-   * - Enviar la respuesta del chat token por token
-   * - Manejar errores y timeout
-   * - Cerrar la conexión al terminar
+   * - Enviar la respuesta del chat token por token ✅
+   * - Manejar errores y timeout ✅
+   * - Cerrar la conexión al terminar ✅
    */
-  // TODO: Descomentar y completar según la opción elegida
-  //
-  // Opción SSE:
-  // @Sse('stream/:conversationId')
-  // @ApiOperation({ summary: 'Stream de respuestas del chat' })
-  // streamResponse(@Param('conversationId') conversationId: string) {
-  //   return this.chatService.streamResponse(...);
-  // }
-  //
+
+  @Sse('stream')
+  streamResponse(
+    @Query() queryParams: SendMessageDto,
+  ): Observable<MessageEvent> {
+    return this.chatService.streamResponse(queryParams);
+  }
+
   // Opción WebSocket: Crear chat.gateway.ts
 }
