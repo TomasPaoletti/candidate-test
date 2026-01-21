@@ -30,6 +30,7 @@ export function DashboardCharts({ studentId }: DashboardChartsProps) {
           <ErrorCard
             title='Error al cargar actividad'
             message='No pudimos cargar tu gráfico de actividad'
+            error={error}
             onRetry={() => refetch()}
             compact
           />

@@ -20,7 +20,11 @@ export function StatsCard({
   subtitle,
 }: StatsCardProps) {
   return (
-    <Card data-testid='courses-stats-cards'>
+    <Card
+      data-testid='courses-stats-cards'
+      role='group'
+      aria-label={`${title}: ${value}`}
+    >
       <IconWrapper $color={color}>{icon}</IconWrapper>
       <Content>
         <Title>{title}</Title>

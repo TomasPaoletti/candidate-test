@@ -18,6 +18,11 @@ const mockDashboard = {
     id: '507f1f77bcf86cd799439011',
     name: 'María García',
     email: 'maria@test.com',
+    preferences: {
+      notifications: true,
+      theme: 'dark',
+      language: 'es',
+    },
   },
   stats: {
     totalCourses: 5,

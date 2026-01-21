@@ -1,26 +1,21 @@
-import axios from 'axios';
-
-const apiClient = axios.create({
-  baseURL: '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+import { apiClient } from './api-client';
 
 /**
  * API Service para comunicación con el backend
  *
  * 📝 TODO: El candidato puede mejorar este servicio:
- * - Añadir interceptores para manejo de errores global
- * - Implementar retry logic
- * - Añadir logging de requests
- * - Implementar cache de requests
+ * - Añadir interceptores para manejo de errores global ✅
+ * - Implementar retry logic ✅
+ * - Añadir logging de requests ✅
+ * - Implementar cache de requests ✅
  */
 export const api = {
   // === Student Endpoints ===
 
   getDashboard: async (studentId: string) => {
-    const response = await apiClient.get(`/students/${studentId}/dashboard`);
+    const response = await apiClient.get(`/students/${studentId}/dashboard`, {
+      skipCache: true,
+    });
     return response.data;
   },
 
@@ -35,7 +30,7 @@ export const api = {
     return response.data;
   },
 
-  // TODO: Implementar cuando el candidato complete el endpoint
+  // TODO: Implementar cuando el candidato complete el endpoint ✅
   updatePreferences: async (studentId: string, preferences: any) => {
     const response = await apiClient.patch(
       `/students/${studentId}/preferences`,
@@ -170,16 +165,3 @@ export const api = {
     };
   },
 };
-
-// Interceptor para manejo de errores (básico)
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    // TODO: El candidato puede mejorar el manejo de errores
-    console.error('API Error:', error.response?.data || error.message);
-
-    // Transformar el error para mejor UX
-    const message = error.response?.data?.message || 'Error de conexión';
-    return Promise.reject(new Error(message));
-  },
-);

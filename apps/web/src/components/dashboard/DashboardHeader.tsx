@@ -6,6 +6,7 @@ import { ErrorCard } from '../ErrorCard';
 import { SkeletonDashboardHeader } from '../skeletons/SkeletonDashboradHeader';
 import { SkeletonStatsCard } from '../skeletons/SkeletonStatsCard';
 import { StatsCard } from '../StatsCard';
+import { DashboardPreferences } from './DashboardPreferences';
 
 interface DashboardHeaderProps {
   studentId: string;
@@ -17,11 +18,12 @@ export function DashboardHeader({ studentId }: DashboardHeaderProps) {
     queryFn: () => api.getDashboard(studentId),
   });
 
-  if (error) {
+  if (error && !isLoading) {
     return (
       <ErrorCard
         title='Error al cargar información'
         message='No pudimos cargar tu información personal y estadísticas'
+        error={error}
         onRetry={() => refetch()}
       />
     );
@@ -37,6 +39,13 @@ export function DashboardHeader({ studentId }: DashboardHeaderProps) {
             <h1 data-testid='dashboard-title'>¡Hola, {data?.student.name}!</h1>
             <Subtitle>Aquí está tu progreso de hoy</Subtitle>
           </Greeting>
+
+          <PreferencesWrapper>
+            <DashboardPreferences
+              studentId={studentId}
+              preferences={data.student.preferences}
+            />
+          </PreferencesWrapper>
         </Header>
       )}
 
@@ -83,6 +92,9 @@ export function DashboardHeader({ studentId }: DashboardHeaderProps) {
 }
 
 const Header = styled.header`
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: var(--spacing-xl);
 `;
 
@@ -104,4 +116,10 @@ const StatsGrid = styled.div`
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--spacing-md);
   margin-bottom: var(--spacing-xl);
+`;
+
+const PreferencesWrapper = styled.div`
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: 4px;
 `;

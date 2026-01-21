@@ -24,10 +24,11 @@ export function DashboardCourses({ studentId }: DashboardCoursesProps) {
         </ViewAllLink>
       </SectionHeader>
 
-      {error ? (
+      {error && !isLoading ? (
         <ErrorCard
           title='Error al cargar cursos'
           message='No pudimos obtener tus cursos recientes'
+          error={error}
           onRetry={() => refetch()}
         />
       ) : (

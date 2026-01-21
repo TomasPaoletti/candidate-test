@@ -27,7 +27,7 @@ export class StudentController {
   async getDashboard(@Param('id') id: string) {
     const dashboard = await this.studentService.getDashboard(id);
     if (!dashboard) {
-      throw new NotFoundException(`Estudiante con ID ${id} no encontrado`);
+      throw new NotFoundException(`Estudiante no encontrado`);
     }
     return dashboard;
   }

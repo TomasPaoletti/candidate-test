@@ -6,8 +6,8 @@
 ## Información del Candidato
 
 - **Nombre:** Tomás Paoletti
-- **Fecha:** [Fecha]
-- **Tiempo dedicado:** [Horas totales]
+- **Fecha:** 21/01/2026
+- **Tiempo dedicado:** 10 horas
 
 ---
 
@@ -370,6 +370,8 @@ El bug fue descubierto durante la implementación de tests unitarios para el mé
 
 1. **Frontend utiliza Vitest en lugar de Jest:** El proyecto frontend está configurado con Vite como build tool, y Vitest es el test runner nativo y recomendado para proyectos Vite. Aunque el proyecto backend usa Jest (estándar en NestJS), mantener Vitest en el frontend es la mejor práctica porque: (a) está optimizado para trabajar con Vite y usa la misma configuración de transformación, (b) es más rápido debido a su integración nativa con Vite, y (c) el `tsconfig.spec.json` ya incluye los tipos de Vitest. Convertir los tests de sintaxis Jest a Vitest solo requirió cambiar `jest` por `vi` y agregar `import { vi } from 'vitest'`.
 
+Para iniciar los test de web con vn, debemos ir dentro de `/apps/web` y ejecutar el comando `npx vitest run`
+
 2. **[Suposición]:** [Justificación]
 
 ---
@@ -382,6 +384,43 @@ Si tuviera más tiempo, implementaría:
    - Reintento selectivo de chunks específicos
    - Análisis de patrones de fallo
    - Debugging más efectivo en producción
+
+2. **Separación de responsabilidades usando DDD / Clean Architecture**  
+   Actualmente, gran parte de la lógica de negocio vive en servicios que son llamados directamente desde los controladores y que, a su vez, se conectan a MongoDB.  
+   Con más tiempo, refactorizaría esta estructura hacia una arquitectura más desacoplada, basada en dominio, separando claramente las responsabilidades:
+   - **Controladores**: responsables únicamente de manejar la capa HTTP (request/response, validaciones básicas, status codes).
+   - **Casos de uso**: un caso de uso por acción del sistema (por ejemplo: actualizar preferencias, obtener dashboard, enviar mensajes).  
+     Cada controlador delegaría su lógica a un único caso de uso.
+   - **Dominio**:
+     - **Entidades** con reglas de negocio explícitas
+     - **Value Objects** para conceptos clave como preferencias, idioma o configuración de notificaciones
+   - **Capa de infraestructura**:
+     - Repositorios para acceso a MongoDB
+     - Implementaciones concretas de persistencia desacopladas del dominio y de los casos de uso
+
+   Este enfoque permitiría:
+   - Aislar la lógica de negocio de la infraestructura
+   - Facilitar testing unitario sin depender de la base de datos
+   - Mejorar la mantenibilidad y escalabilidad del backend
+   - Reducir el acoplamiento entre controladores, servicios y persistencia
+
+3. **Mejora de la experiencia de chat y gestión de conversaciones**  
+   Actualmente, el chat funciona de forma aislada por conversación. Como mejora futura, convertiría la ruta `/chat` en una página principal donde se renderice la lista de conversaciones existentes del usuario.
+
+   Esta vista permitiría:
+   - Visualizar todas las conversaciones activas
+   - Eliminar conversaciones
+   - Desactivarlas
+   - Cambiar el nombre de una conversación
+   - Identificar rápidamente el contexto de cada chat
+
+   Al hacer click sobre una conversación, el usuario sería redirigido a la ruta `/chat/:conversationId`, donde se cargarían los mensajes asociados.  
+   Además, en esta pantalla se incluiría el botón actual de **“Nueva conversación”**, centralizando toda la experiencia de chat en un único flujo.
+
+   Este enfoque mejoraría:
+   - La usabilidad y navegación del sistema de chat
+   - La organización de conversaciones largas o múltiples
+   - La escalabilidad del módulo de chat a futuro
 
 ---
 
@@ -397,4 +436,10 @@ Si tuviera más tiempo, implementaría:
 
 ## Notas Adicionales
 
-[Cualquier otra información relevante]
+1. **Indexar contenido de un pdf**
+   Para indexar un contenido de un pdf ejecutar: `npx ts-node scripts/index-pdf.ts`
+
+2. **Test WEB**
+   Para iniciar los test de web con vn, debemos ir dentro de `/apps/web` y ejecutar el comando `npx vitest run`
+
+**Muchas gracias por la oportunidad, Tomás**

@@ -1,9 +1,11 @@
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import styled from 'styled-components';
+import { ApiError } from '../services/interceptors/errors';
 
 interface ErrorCardProps {
   title: string;
-  message: string;
+  message?: string;
+  error?: unknown;
   onRetry?: () => void;
   compact?: boolean; // Para card mas pequeña
 }
@@ -11,9 +13,12 @@ interface ErrorCardProps {
 export function ErrorCard({
   title,
   message,
+  error,
   onRetry,
   compact = false,
 }: ErrorCardProps) {
+  const messageApi = error instanceof ApiError ? error.message : message;
+
   return (
     <ErrorContainer data-testid='error-container' $compact={compact}>
       <ErrorIcon $compact={compact}>
@@ -21,7 +26,7 @@ export function ErrorCard({
       </ErrorIcon>
       <ErrorContent>
         <ErrorTitle $compact={compact}>{title}</ErrorTitle>
-        <ErrorMessage $compact={compact}>{message}</ErrorMessage>
+        <ErrorMessage $compact={compact}>{messageApi}</ErrorMessage>
         {onRetry && (
           <RetryButton data-testid='button-retry' onClick={onRetry}>
             <RefreshCw size={16} />
