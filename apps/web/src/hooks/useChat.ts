@@ -90,7 +90,7 @@ export function useChat({ studentId, conversationId }: UseChatOptions) {
     },
   });
 
-  // TODO: Implementar streaming de respuestas
+  // TODO: Implementar streaming de respuestas ✅
   const sendWithStreaming = useCallback(
     async (message: string) => {
       setError(false);
@@ -185,7 +185,7 @@ export function useChat({ studentId, conversationId }: UseChatOptions) {
     [studentId, conversationId, handleOnError],
   );
 
-  // TODO: Implementar nueva conversación
+  // TODO: Implementar nueva conversación ✅
   const newConversationMutation = useMutation({
     mutationFn: (initialContext?: string) =>
       api.startNewConversation(studentId, initialContext),

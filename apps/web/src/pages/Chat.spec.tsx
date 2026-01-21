@@ -162,26 +162,25 @@ describe('Chat', () => {
     it('should show assistant response after API call', async () => {
       const user = userEvent.setup();
 
-      let onTokenCallback: ((token: string) => void) | undefined;
-      let onDoneCallback: ((data: any) => void) | undefined;
-
       vi.mocked(api.streamChatResponse).mockImplementation((_, callbacks) => {
-        onTokenCallback = callbacks.onToken;
-        onDoneCallback = callbacks.onDone;
-
         setTimeout(() => {
           callbacks.onStart?.({
             conversationId: 'conv-123',
             userMessageId: 'user-msg-1',
           });
-          onTokenCallback?.('H');
-          onTokenCallback?.('e');
-          onTokenCallback?.('l');
-          onTokenCallback?.('l');
-          onTokenCallback?.('o');
-          onDoneCallback?.({
+          callbacks.onToken?.('H');
+          callbacks.onToken?.('e');
+          callbacks.onToken?.('l');
+          callbacks.onToken?.('l');
+          callbacks.onToken?.('o');
+          callbacks.onDone?.({
             assistantMessageId: 'asst-msg-1',
-            metadata: { tokensUsed: 10, model: 'gpt-4o-mini' },
+            metadata: {
+              tokensUsed: 10,
+              model: 'gpt-4',
+              relevantChunks: 2,
+              usedRAG: true,
+            },
           });
         }, 100);
 
@@ -193,9 +192,7 @@ describe('Chat', () => {
       const input = screen.getByPlaceholderText('Escribe tu pregunta...');
       await user.type(input, 'Hi{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByText('Hello')).toBeInTheDocument();
-      });
+      await screen.findByText('Hello');
     });
 
     it('should disable input while sending', async () => {
@@ -269,19 +266,11 @@ describe('Chat', () => {
       const input = screen.getByPlaceholderText('Escribe tu pregunta...');
       await user.type(input, 'Hello{Enter}');
 
-      await waitFor(
-        () => {
-          expect(screen.getByText(/Test/i)).toBeInTheDocument();
-        },
-        { timeout: 1000 },
-      );
+      await screen.findByText(/Test/i, {}, { timeout: 1000 });
     });
 
     it('should handle stream errors gracefully', async () => {
       const user = userEvent.setup();
-      const consoleSpy = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
 
       vi.mocked(api.streamChatResponse).mockImplementation((_, callbacks) => {
         setTimeout(() => {
@@ -296,9 +285,7 @@ describe('Chat', () => {
       const input = screen.getByPlaceholderText('Escribe tu pregunta...');
       await user.type(input, 'Test{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByTestId('error-chat')).toBeInTheDocument();
-      });
+      await screen.findByTestId('error-chat');
     });
 
     it('should complete message when stream ends', async () => {
@@ -331,9 +318,7 @@ describe('Chat', () => {
       const input = screen.getByPlaceholderText('Escribe tu pregunta...');
       await user.type(input, 'Test{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByText('Complete message')).toBeInTheDocument();
-      });
+      await screen.findByText('Complete message');
 
       await waitFor(() => {
         expect(input).not.toBeDisabled();
@@ -450,9 +435,7 @@ describe('Chat', () => {
       const input = screen.getByPlaceholderText('Escribe tu pregunta...');
       await user.type(input, 'Test{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByText('Mensaje antiguo')).toBeInTheDocument();
-      });
+      await screen.findByText('Mensaje antiguo');
 
       const newConversationButton = screen.getByTestId(
         'button-new-conversation',
@@ -468,14 +451,7 @@ describe('Chat', () => {
         expect(screen.queryByText('Respuesta antigua')).not.toBeInTheDocument();
       });
 
-      await waitFor(
-        () => {
-          expect(
-            screen.queryByTestId('title-new-conversation'),
-          ).toBeInTheDocument();
-        },
-        { timeout: 200 },
-      );
+      await screen.findByTestId('title-new-conversation', {}, { timeout: 200 });
     });
 
     it('should load history after starting conversation', async () => {
@@ -504,12 +480,7 @@ describe('Chat', () => {
         );
       });
 
-      await waitFor(
-        () => {
-          expect(screen.getByText('Mensaje histórico')).toBeInTheDocument();
-        },
-        { timeout: 400 },
-      );
+      await screen.findByText('Mensaje histórico', {}, { timeout: 400 });
     });
 
     it('should show loading state while creating conversation', async () => {
@@ -543,14 +514,7 @@ describe('Chat', () => {
         expect(newConversationButton).toBeDisabled();
       });
 
-      await waitFor(
-        () => {
-          expect(
-            screen.queryByTestId('title-new-conversation'),
-          ).toBeInTheDocument();
-        },
-        { timeout: 200 },
-      );
+      await screen.findByTestId('title-new-conversation', {}, { timeout: 200 });
     });
 
     it('should handle error when creating new conversation fails', async () => {
@@ -568,10 +532,7 @@ describe('Chat', () => {
 
       await user.click(newConversationButton);
 
-      await waitFor(() => {
-        expect(screen.getByTestId('error-chat')).toBeInTheDocument();
-      });
-
+      await screen.findByTestId('error-chat');
       expect(newConversationButton).not.toBeDisabled();
     });
   });
@@ -585,9 +546,6 @@ describe('Chat', () => {
   describe('Error handling', () => {
     it('should show error message when API fails', async () => {
       const user = userEvent.setup();
-      const consoleSpy = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
 
       vi.mocked(api.streamChatResponse).mockImplementation(() => {
         throw new Error('API connection failed');
@@ -599,16 +557,11 @@ describe('Chat', () => {
 
       await user.type(input, 'Test{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByTestId('error-chat')).toBeInTheDocument();
-      });
+      await screen.findByTestId('error-chat');
     });
 
     it('should allow retry after error', async () => {
       const user = userEvent.setup();
-      const consoleSpy = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
 
       let callCount = 0;
       vi.mocked(api.streamChatResponse).mockImplementation((_, callbacks) => {
@@ -642,24 +595,17 @@ describe('Chat', () => {
 
       await user.type(input, 'Test{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByTestId('error-chat')).toBeInTheDocument();
-      });
+      await screen.findByTestId('error-chat');
 
       await user.clear(input);
       await user.type(input, 'Retry{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByText('Success')).toBeInTheDocument();
-        expect(screen.queryByTestId('error-chat')).not.toBeInTheDocument();
-      });
+      await screen.findByText('Success');
+      expect(screen.queryByTestId('error-chat')).not.toBeInTheDocument();
     });
 
     it('should handle network disconnection', async () => {
       const user = userEvent.setup();
-      const consoleSpy = vi
-        .spyOn(console, 'error')
-        .mockImplementation(() => {});
 
       vi.mocked(api.streamChatResponse).mockImplementation((_, callbacks) => {
         setTimeout(() => {
@@ -674,9 +620,7 @@ describe('Chat', () => {
       const input = screen.getByPlaceholderText('Escribe tu pregunta...');
       await user.type(input, 'Test{Enter}');
 
-      await waitFor(() => {
-        expect(screen.getByTestId('error-chat')).toBeInTheDocument();
-      });
+      await screen.findByTestId('error-chat');
 
       await waitFor(() => {
         expect(input).not.toBeDisabled();

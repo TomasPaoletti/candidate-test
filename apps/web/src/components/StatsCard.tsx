@@ -12,9 +12,15 @@ interface StatsCardProps {
 /**
  * IMPLEMENTADO - Tarjeta de estadistica individual
  */
-export function StatsCard({ title, value, icon, color = 'var(--color-primary)', subtitle }: StatsCardProps) {
+export function StatsCard({
+  title,
+  value,
+  icon,
+  color = 'var(--color-primary)',
+  subtitle,
+}: StatsCardProps) {
   return (
-    <Card>
+    <Card data-testid='courses-stats-cards'>
       <IconWrapper $color={color}>{icon}</IconWrapper>
       <Content>
         <Title>{title}</Title>

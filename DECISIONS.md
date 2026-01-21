@@ -18,7 +18,7 @@
 **Contexto:** El README menciona usar `gpt-5-mini` o `gpt-4` para las respuestas.
 **Opciones consideradas:**
 
-1. `gpt-5-mini`: Mencionado en README pero no existe en la API de OpenAI
+1. `gpt-5-mini`: Mencionado en README
 2. `gpt-4`: Modelo potente pero costoso
 
 **Decisión:** Utilizar `gpt-4`
@@ -201,6 +201,44 @@ Se eligió **usar parámetros de URL (route-based)** para gestionar las conversa
 - Requiere configuración de rutas en React Router
 - Ligeramente más código de setup inicial (rutas + navegación)
 - Los tests necesitan mockear `useParams` y `useNavigate`
+
+### 12. Gráfico de distribución por categoría en lugar de actividad semanal
+
+**Contexto:**
+
+El TODO del componente Dashboard solicitaba implementar un "gráfico de actividad semanal". Sin embargo, al analizar el endpoint `/api/stats/:studentId`, este solo provee:
+
+- Tiempo total acumulado por categoría de curso
+- Racha de días consecutivos de estudio (un número)
+- Promedio de progreso semanal (un porcentaje)
+
+**El problema:** No hay datos de actividad diaria. El backend no registra ni retorna información de cuántas horas se estudió cada día específico.
+
+**Opciones consideradas:**
+
+1. **Simular datos de actividad semanal:**
+   - Distribuir el tiempo total entre 7 días de forma aleatoria
+   - Usar el `studyStreak` para determinar qué días mostrar actividad
+   - **Problema:** Los datos serían ficticios y engañarían al usuario
+
+2. **Implementar gráfico de distribución por categoría:**
+   - Mostrar cómo se distribuye el tiempo de estudio entre categorías (Frontend, Backend, etc.)
+   - Usar los datos reales disponibles del endpoint
+   - Proporcionar información útil y verdadera al estudiante
+
+**Decisión:**
+
+Se eligió **implementar un gráfico de barras de tiempo por categoría** en lugar del gráfico semanal solicitado.
+
+**Razones:**
+
+1. **Integridad de datos:** Preferimos mostrar datos 100% verdaderos que inventar distribuciones temporales ficticias.
+
+2. **Valor para el usuario:** El gráfico de categorías es útil - permite al estudiante ver en qué áreas invierte más tiempo y si hay balance en su aprendizaje.
+
+3. **Honestidad técnica:** En un contexto profesional, es mejor comunicar las limitaciones del sistema que presentar datos simulados como reales.
+
+4. **Extensibilidad:** Si en el futuro el backend implementa tracking diario, el componente `CategoryTimeChart` puede coexistir con un nuevo `WeeklyActivityChart`.
 
 ---
 

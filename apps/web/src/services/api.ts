@@ -29,7 +29,7 @@ export const api = {
     return response.data;
   },
 
-  // TODO: Implementar cuando el candidato complete el endpoint
+  // TODO: Implementar cuando el candidato complete el endpoint ✅
   getStats: async (studentId: string) => {
     const response = await apiClient.get(`/students/${studentId}/stats`);
     return response.data;
